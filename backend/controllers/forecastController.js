@@ -23,15 +23,35 @@ const forecastSales = async (req, res) => {
       });
     }
 
-    const salesRecords = await Sale.find({
-      product: productId,
-    }).sort({ saleDate: 1 });
+        const weekly = await Sale.aggregate([
+      { $match: { product: product._id } },
+      {
+        $group: {
+          _id: { $dateTrunc: { date: "$saleDate", unit: "week" } },
+          total: { $sum: "$quantity" }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
 
-    if (salesRecords.length < 5) {
+    const WEEK = 7 * 24 * 60 * 60 * 1000;
+    const sales = [];
+
+    if (weekly.length > 0) {
+      const byWeek = new Map(weekly.map((w) => [w._id.getTime(), w.total]));
+      const first = weekly[0]._id.getTime();
+      const last = weekly[weekly.length - 1]._id.getTime();
+
+      for (let t = first; t <= last; t += WEEK) {
+        sales.push(byWeek.get(t) || 0); // weeks with no sales = 0
+      }
+    }
+
+    if (sales.length < 5) {
       return res.status(400).json({
         success: false,
-        message: "At least 5 sales records are required",
-        availableRecords: salesRecords.length,
+        message: "At least 5 weeks of sales history are required",
+        availableWeeks: sales.length,
       });
     }
 
