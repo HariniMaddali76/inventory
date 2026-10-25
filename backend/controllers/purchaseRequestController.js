@@ -77,9 +77,17 @@ exports.getPurchaseRequests = async (req, res) => {
   }
 };
 
+// Approve or reject a pending request
 exports.updatePurchaseRequestStatus = async (req, res) => {
   try {
     const { status } = req.body;
+
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid purchase request ID"
+      });
+    }
 
     if (!["Approved", "Rejected"].includes(status)) {
       return res.status(400).json({
@@ -88,24 +96,28 @@ exports.updatePurchaseRequestStatus = async (req, res) => {
       });
     }
 
-    const request = await PurchaseRequest.findById(req.params.id);
+    // Atomic: only a Pending request can change status
+    const request = await PurchaseRequest.findOneAndUpdate(
+      { _id: req.params.id, status: "Pending" },
+      { $set: { status } },
+      { new: true }
+    );
 
     if (!request) {
-      return res.status(404).json({
-        success: false,
-        message: "Purchase request not found"
-      });
-    }
+      const exists = await PurchaseRequest.exists({ _id: req.params.id });
 
-    if (request.status !== "Pending") {
+      if (!exists) {
+        return res.status(404).json({
+          success: false,
+          message: "Purchase request not found"
+        });
+      }
+
       return res.status(400).json({
         success: false,
         message: "Only pending requests can be updated"
       });
     }
-
-    request.status = status;
-    await request.save();
 
     return res.status(200).json({
       success: true,
@@ -121,6 +133,7 @@ exports.updatePurchaseRequestStatus = async (req, res) => {
     });
   }
 };
+
 // Mark purchase request as received and update stock
 exports.markPurchaseRequestReceived = async (req, res) => {
   try {
@@ -158,23 +171,50 @@ exports.markPurchaseRequestReceived = async (req, res) => {
       });
     }
 
-    product.currentStock += request.quantity;
-    await product.save();
+    // Atomically claim the request: only one call can move Approved -> Received
+    const claimed = await PurchaseRequest.findOneAndUpdate(
+      { _id: id, status: "Approved" },
+      { $set: { status: "Received" } },
+      { new: true }
+    );
 
-    request.status = "Received";
-    await request.save();
+    if (!claimed) {
+      return res.status(409).json({
+        success: false,
+        message: "Request was already received or its status changed"
+      });
+    }
 
-    return res.status(200).json({
-      success: true,
-      message: "Purchase received and stock updated successfully",
-      data: {
-        requestId: request._id,
-        productName: product.name,
-        receivedQuantity: request.quantity,
-        updatedStock: product.currentStock,
-        status: request.status
+    try {
+      const updatedProduct = await Product.findByIdAndUpdate(
+        claimed.product,
+        { $inc: { currentStock: claimed.quantity } },
+        { new: true }
+      );
+
+      if (!updatedProduct) {
+        throw new Error("Product disappeared during stock update");
       }
-    });
+
+      return res.status(200).json({
+        success: true,
+        message: "Purchase received and stock updated successfully",
+        data: {
+          requestId: claimed._id,
+          productName: updatedProduct.name,
+          receivedQuantity: claimed.quantity,
+          updatedStock: updatedProduct.currentStock,
+          status: claimed.status
+        }
+      });
+    } catch (stockError) {
+      // Stock update failed, so put the request back to Approved
+      await PurchaseRequest.updateOne(
+        { _id: id, status: "Received" },
+        { $set: { status: "Approved" } }
+      );
+      throw stockError;
+    }
   } catch (error) {
     console.error("Mark received error:", error.message);
 
