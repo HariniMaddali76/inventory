@@ -16,10 +16,10 @@ exports.checkReorderNeeded = async (req, res) => {
     const skippedRequests = [];
 
     for (const product of products) {
-      // Prevent duplicate pending requests for the same product
+      // Prevent duplicate orders: skip if a request is still open
       const existingRequest = await PurchaseRequest.findOne({
         product: product._id,
-        status: "Pending",
+        status: { $in: ["Pending", "Approved"] },
       });
 
       const shortage = Math.max(
@@ -41,7 +41,7 @@ exports.checkReorderNeeded = async (req, res) => {
       if (existingRequest) {
         skippedRequests.push({
           product: product.name,
-          reason: "Pending purchase request already exists",
+          reason: `A ${existingRequest.status.toLowerCase()} purchase request already exists`,
           requestId: existingRequest._id,
         });
 
