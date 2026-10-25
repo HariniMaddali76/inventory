@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 const Sale = require("../models/sales");
 const Product = require("../models/product");
 
-// Create a sale
+// Create a sale (also reduces product stock)
 exports.createSale = async (req, res) => {
   try {
     const { product, quantity, unitPrice, saleDate } = req.body;
@@ -46,8 +46,7 @@ exports.createSale = async (req, res) => {
     // Validate sale date if provided
     if (
       saleDate !== undefined &&
-      (Number.isNaN(Date.parse(saleDate)) ||
-        typeof saleDate !== "string")
+      (typeof saleDate !== "string" || Number.isNaN(Date.parse(saleDate)))
     ) {
       return res.status(400).json({
         success: false,
@@ -65,18 +64,47 @@ exports.createSale = async (req, res) => {
       });
     }
 
-    const sale = await Sale.create({
-      product,
-      quantity: Number(quantity),
-      unitPrice: Number(unitPrice),
-      ...(saleDate !== undefined && {
-        saleDate: new Date(saleDate)
-      })
-    });
+    const saleQuantity = Number(quantity);
+
+    // Atomically reduce stock only if enough stock is available
+    const stockUpdated = await Product.findOneAndUpdate(
+      { _id: product, currentStock: { $gte: saleQuantity } },
+      { $inc: { currentStock: -saleQuantity } },
+      { new: true }
+    );
+
+    if (!stockUpdated) {
+      return res.status(400).json({
+        success: false,
+        message: "Insufficient stock for this sale",
+        availableStock: existingProduct.currentStock
+      });
+    }
+
+    let sale;
+
+    try {
+      sale = await Sale.create({
+        product,
+        quantity: saleQuantity,
+        unitPrice: Number(unitPrice),
+        ...(saleDate !== undefined && {
+          saleDate: new Date(saleDate)
+        })
+      });
+    } catch (saleError) {
+      // Sale save failed, so give the stock back
+      await Product.updateOne(
+        { _id: product },
+        { $inc: { currentStock: saleQuantity } }
+      );
+      throw saleError;
+    }
 
     return res.status(201).json({
       success: true,
       message: "Sale recorded successfully",
+      remainingStock: stockUpdated.currentStock,
       data: sale
     });
   } catch (error) {
