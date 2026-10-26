@@ -1,8 +1,15 @@
+
 const express = require("express");
 const router = express.Router();
 
 const reorderController = require("../controllers/reorderController");
+const { authMiddleware } = require("../middleware/authMiddleware");
 
-router.get("/", reorderController.checkReorderNeeded);
+// Reorder check requires a valid JWT token
+router.get(
+  "/",
+  authMiddleware,
+  reorderController.checkReorderNeeded
+);
 
 module.exports = router;

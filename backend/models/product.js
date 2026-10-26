@@ -14,9 +14,10 @@ const productSchema = new mongoose.Schema(
       trim: true
     },
     category: {
-      type: String,
-      default: "General"
-    },
+  type: String,
+  trim: true,
+  default: "General"
+},
     currentStock: {
       type: Number,
       required: true,
@@ -33,9 +34,10 @@ const productSchema = new mongoose.Schema(
       min: 0
     },
     supplier: {
-      type: String,
-      default: ""
-    }
+  type: String,
+  trim: true,
+  default: ""
+}
   },
   { timestamps: true }
 );
