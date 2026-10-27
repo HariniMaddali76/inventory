@@ -61,8 +61,8 @@ const adminMiddleware = (req, res, next) => {
     path: req.originalUrl,
   });
 
-  if (!req.user || req.user.role !== "admin") {
-    console.log("ACCESS DENIED: Admin role required");
+if (!req.user || String(req.user.role).toLowerCase() !== "admin") {
+      console.log("ACCESS DENIED: Admin role required");
 
     return res.status(403).json({
       success: false,
