@@ -166,7 +166,7 @@ export default function Inventory() {
             </h1>
 
             <p className="mt-2 text-sm text-blue-200">
-              Products database nunchi inventory ni manage cheyyi.
+              Manage your inventory using the products database
             </p>
           </div>
 
